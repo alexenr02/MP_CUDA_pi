@@ -34,7 +34,9 @@ __global__ void kernel(double* d_a, long long total_threads, double baseInterval
 
 int main(void)
 {
-	clock_t start, end;
+	//clock_t start, end;
+	struct timespec start, end;
+
 	cudaError_t cudaStatus;
 	cudaDeviceProp prop;
 
@@ -55,33 +57,25 @@ int main(void)
 	int NUM_THREADS = num_threads_supported;
 	long long total_threads = NUM_BLOCKS * NUM_THREADS;
 
+	double* arr;
+	//int size = total_threads * sizeof(double);
 
-	//array that will contain partial sums of each thread
-	double* h_a = (double*)malloc(total_threads *sizeof(double));
+	//dynamic allocation
+	cudaMallocManaged(&arr, total_threads * sizeof(double));
 
-	//Allocate arrays in device memory, array that will contain partial sums of each thread
-	double* d_a;
 
-	//Allocate memory on the device
-	cudaStatus = cudaMalloc((void**)&d_a, total_threads * sizeof(double));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed!");
-		goto Error;
+	if (timespec_get(&start, TIME_UTC) != TIME_UTC)
+	{
+		printf("Error in calling timespec_get");
+		exit(EXIT_FAILURE);
 	}
-
-	//copy memory from host to Device
-	cudaStatus = cudaMemcpy(d_a, h_a, total_threads * sizeof(double), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed!");
-		goto Error;
-	}
-
-
-	start = clock();
 	//Launch the kernel
-	kernel << < NUM_BLOCKS, NUM_THREADS >> > (d_a, total_threads, baseIntervalo, cantidadIntervalos);
-	end = clock();
-
+	kernel << < NUM_BLOCKS, NUM_THREADS >> > (arr, total_threads, baseIntervalo, cantidadIntervalos);
+	if (timespec_get(&end, TIME_UTC) != TIME_UTC)
+	{
+		printf("Error in calling timespec_get");
+		exit(EXIT_FAILURE);
+	}
 
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) {
@@ -97,32 +91,19 @@ int main(void)
 		goto Error;
 	}
 
-	// Copy data back to host
-	cudaStatus = cudaMemcpy(h_a, d_a, total_threads * sizeof(double), cudaMemcpyDeviceToHost);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed!");
-		goto Error;
+
+
+	for (long long c = 0; c < total_threads; c++)
+	{
+		totalSum += arr[c];
 	}
 
 Error:
 	//De-allocate memory
-	cudaFree(d_a);
+	cudaFree(arr);
 
-	for (long long c = 0; c < total_threads; c++)
-	{
-		totalSum += h_a[c];
-	}
-
-	time_t total = (end - start);
-	printf("Result = %20.18lf (%lld)\n\n", totalSum, total);
-
-
-
-	free(h_a);
-
-
-
-
+	double total = (double)(end.tv_sec - start.tv_sec) + ((double)(end.tv_nsec - start.tv_nsec) / 1000000000L);
+	printf("Result = %20.18lf (%.10lf ms)\n\n", totalSum, total);
 
 	return 0;
 }
