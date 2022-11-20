@@ -23,7 +23,7 @@ __global__ void kernel(double* d_a, long long total_threads, double baseInterval
 	{
 		for (long long i = tid; i < cantidadIntervalos; i += total_threads)
 		{
-			x = (i) * baseIntervalo;
+			x = (i+0.5) * baseIntervalo;
 			fdx = 4 / (1 + x * x);
 			acum += fdx;
 		}
@@ -126,15 +126,3 @@ Error:
 
 	return 0;
 }
-
-
-/*
-
-//printf("%d %d ", num_threads_supported, num_blocks_supported);
-
-	//maxThreadsPerBlock;         /**< Maximum number of threads per block */
-	//int          maxThreadsDim[3];           /**< Maximum size of each dimension of a block */
-	//int          maxGridSize[3];
-	//dim3 Blocksnum=
-
-	//dim3 threadsnum= (prop.maxThreadsDim[0], prop.maxThreadsDim[1], prop.maxThreadsDim[2]);*/
