@@ -6,16 +6,17 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include <time.h>
-
+#include <cuda_fp16.h>
 
 long long cantidadIntervalos = 1000000000; // 1 B
 double baseIntervalo;
+double acum=0;
 
-__global__ void kernel(double* d_a, long long total_threads, double baseIntervalo, long long cantidadIntervalos)
+__global__ void kernel(long long total_threads, double baseIntervalo, long long cantidadIntervalos, double* totalSum)
 {
 	//calculate global thread ID(tid)
 	long long tid = (blockIdx.x * blockDim.x) + threadIdx.x;
-	double acum = 0;
+	double localAcum = 0;
 	double fdx = 0;
 	double x = 0;
 
@@ -25,18 +26,19 @@ __global__ void kernel(double* d_a, long long total_threads, double baseInterval
 		{
 			x = (i+0.5) * baseIntervalo;
 			fdx = 4 / (1 + x * x);
-			acum += fdx;
+			localAcum += fdx;
 		}
-		acum *= baseIntervalo;
-		d_a[tid] = acum;
+		
+		atomicAdd(&totalSum[0], localAcum);		//avoiding race condition
+		
+		//totalSum[0] += localAcum;			//race condition
 	}
+
 }
 
 int main(void)
 {
-	//clock_t start, end;
-	//struct timespec start, end;
-
+	
 	// Metrics
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
@@ -46,38 +48,31 @@ int main(void)
 	cudaDeviceProp prop;
 
 	baseIntervalo = 1.0 / (double)cantidadIntervalos;
-	double totalSum = 0;
+	double* totalSum;
 
 	//Declare variables
 	cudaGetDeviceProperties(&prop, 0);
 	int num_threads_supported = prop.maxThreadsPerBlock;
 	int num_blocks_supported = prop.maxThreadsDim[0];
-	
-	
+
+
 	//Grid Size
-	
 	int NUM_BLOCKS = num_blocks_supported;
 
 	//Threadblock size
 	int NUM_THREADS = num_threads_supported;
 	long long total_threads = NUM_BLOCKS * NUM_THREADS;
 
-	double* arr;
-	//int size = total_threads * sizeof(double);
-
 	//dynamic allocation
-	cudaMallocManaged(&arr, total_threads * sizeof(double));
+	cudaMallocManaged((void**)&totalSum, sizeof(double));
 	// Initialize array in device to 0
-	cudaMemset(arr, 0, total_threads * sizeof(double));
-	// Launch Kernel
+	cudaMemset(totalSum, 0, sizeof(double));
+	// start recording
 	cudaEventRecord(start);
-	cudaEventRecord(stop);
 
-	cudaEventRecord(start);
 	//Launch the kernel
-	kernel << < NUM_BLOCKS, NUM_THREADS >> > (arr, total_threads, baseIntervalo, cantidadIntervalos);
-
-	
+	kernel << < NUM_BLOCKS, NUM_THREADS >> > (total_threads, baseIntervalo, cantidadIntervalos, totalSum);
+		
 	cudaEventRecord(stop);
 
 	cudaStatus = cudaGetLastError();
@@ -87,29 +82,25 @@ int main(void)
 	}
 
 	//cudaDeviceSynchronize waits for the kernel to finish, and returns
-   // any errors encountered during the launch.
+	// any errors encountered during the launch.
 	cudaStatus = cudaDeviceSynchronize();
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
 		goto Error;
 	}
 	cudaEventSynchronize(stop);
+
 	float milliseconds = 0;
 	cudaEventElapsedTime(&milliseconds, start, stop);
-	
 
+	totalSum[0] *= baseIntervalo;
 
-	for (long long c = 0; c < total_threads; c++)
-	{
-		totalSum += arr[c];
-	}
+	printf("PI = %.10f (Total time: %lf)\n", totalSum[0], milliseconds);
 
 Error:
 	//De-allocate memory
-	cudaFree(arr);
+	cudaFree(totalSum);
 
-	//double total = (double)(end.tv_sec - start.tv_sec) + ((double)(end.tv_nsec - start.tv_nsec) / 1000000000L);
-	//printf("Result = %20.18lf (%.10lf ms)\n\n", totalSum, total*1000);
-	printf("PI = %.10f (Total time: %lf)\n", totalSum, milliseconds);
+	
 	return 0;
 }
