@@ -35,7 +35,12 @@ __global__ void kernel(double* d_a, long long total_threads, double baseInterval
 int main(void)
 {
 	//clock_t start, end;
-	struct timespec start, end;
+	//struct timespec start, end;
+
+	// Metrics
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
 
 	cudaError_t cudaStatus;
 	cudaDeviceProp prop;
@@ -50,7 +55,7 @@ int main(void)
 	
 	
 	//Grid Size
-		//int NUM_BLOCKS = (int)ceil(datos / NUM_THREADS);
+	
 	int NUM_BLOCKS = num_blocks_supported;
 
 	//Threadblock size
@@ -62,20 +67,18 @@ int main(void)
 
 	//dynamic allocation
 	cudaMallocManaged(&arr, total_threads * sizeof(double));
+	// Initialize array in device to 0
+	cudaMemset(arr, 0, total_threads * sizeof(double));
+	// Launch Kernel
+	cudaEventRecord(start);
+	cudaEventRecord(stop);
 
-
-	if (timespec_get(&start, TIME_UTC) != TIME_UTC)
-	{
-		printf("Error in calling timespec_get");
-		exit(EXIT_FAILURE);
-	}
+	cudaEventRecord(start);
 	//Launch the kernel
 	kernel << < NUM_BLOCKS, NUM_THREADS >> > (arr, total_threads, baseIntervalo, cantidadIntervalos);
-	if (timespec_get(&end, TIME_UTC) != TIME_UTC)
-	{
-		printf("Error in calling timespec_get");
-		exit(EXIT_FAILURE);
-	}
+
+	
+	cudaEventRecord(stop);
 
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) {
@@ -90,7 +93,10 @@ int main(void)
 		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
 		goto Error;
 	}
-
+	cudaEventSynchronize(stop);
+	float milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
+	
 
 
 	for (long long c = 0; c < total_threads; c++)
@@ -102,8 +108,8 @@ Error:
 	//De-allocate memory
 	cudaFree(arr);
 
-	double total = (double)(end.tv_sec - start.tv_sec) + ((double)(end.tv_nsec - start.tv_nsec) / 1000000000L);
-	printf("Result = %20.18lf (%.10lf ms)\n\n", totalSum, total);
-
+	//double total = (double)(end.tv_sec - start.tv_sec) + ((double)(end.tv_nsec - start.tv_nsec) / 1000000000L);
+	//printf("Result = %20.18lf (%.10lf ms)\n\n", totalSum, total*1000);
+	printf("PI = %.10f (Total time: %lf)\n", totalSum, milliseconds);
 	return 0;
 }
